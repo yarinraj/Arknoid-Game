@@ -1,0 +1,263 @@
+import biuoop.DrawSurface;
+import biuoop.GUI;
+import biuoop.Sleeper;
+
+import java.awt.Color;
+import java.util.List;
+import java.util.ArrayList;
+
+/**
+ * a class that is responsible for the game program, creates ball, paddle, and the sandbox for the level.
+ */
+public class Game {
+    // fields
+    private final SpriteCollection sprites;
+    private final GameEnvironment environment;
+    private GUI gui;
+    private Sleeper sleeper;
+    private int gameWidth = 800;
+    private int gameHeight = 600;
+    private final Counter remainingBlocks;
+    private final Counter remainingBalls;
+    private final Counter score;
+    private final double borderThickness = 20.0;
+    private List<HitListener> blockHitListeners;
+    private final List<Ball> gameBalls;
+    private BlockRemover blockRemover;
+    private ScoreTrackingListener scoreListener;
+    private BallRemover ballRemover;
+    //constructors
+
+    /**
+     * creates game object.
+     */
+    public Game() {
+        sprites = new SpriteCollection();
+        environment = new GameEnvironment();
+        remainingBlocks = new Counter();
+        remainingBalls = new Counter();
+        score = new Counter();
+        gameBalls = new ArrayList<>();
+    }
+
+    // Getters & Setters
+
+    /**
+     * Returns the width of the game screen.
+     *
+     * @return the width of the game in pixels
+     */
+    public int getGameWidth() {
+        return gameWidth;
+    }
+
+    /**
+     * Sets the width of the game screen.
+     *
+     * @param gameWidth the width to set, in pixels
+     */
+    public void setGameWidth(int gameWidth) {
+        this.gameWidth = gameWidth;
+    }
+
+    /**
+     * Returns the height of the game screen.
+     *
+     * @return the height of the game in pixels
+     */
+    public int getGameHeight() {
+        return gameHeight;
+    }
+
+    /**
+     * Sets the height of the game screen.
+     *
+     * @param gameHeight the height to set, in pixels
+     */
+    public void setGameHeight(int gameHeight) {
+        this.gameHeight = gameHeight;
+    }
+
+    /**
+     * get current game's GUI.
+     *
+     * @return GUI object of current game.
+     */
+    public GUI getGui() {
+        return this.gui;
+    }
+
+
+    //Methods
+
+    /**
+     * get current game's border thickness.
+     *
+     * @return game's border thickness.
+     */
+    public double getBorderThickness() {
+        return borderThickness;
+    }
+
+    /**
+     * Add collidable to the game environment.
+     *
+     * @param c collidable to add
+     */
+    public void addCollidable(Collidable c) {
+        environment.addCollidable(c);
+    }
+
+    /**
+     * Add sprite to the game's sprites collection.
+     *
+     * @param s sprite to add
+     */
+    public void addSprite(Sprite s) {
+        sprites.addSprite(s);
+    }
+
+    /**
+     * remove collidable from game environment.
+     *
+     * @param c collidable to remove
+     */
+    public void removeCollidable(Collidable c) {
+        this.environment.removeCollidable(c);
+    }
+
+    /**
+     * remove sprite from game sprites collection.
+     *
+     * @param s sprite to remove
+     */
+    public void removeSprite(Sprite s) {
+        this.sprites.removeSprite(s);
+    }
+
+    /**
+     * Initializing game, making gui, paddle, ball, and borders.
+     */
+    public void initialize() {
+        this.gui = new GUI("GAME ON", gameWidth, gameHeight);
+        this.sleeper = new Sleeper();
+        this.blockRemover = new BlockRemover(this, remainingBlocks);
+        this.scoreListener = new ScoreTrackingListener(score);
+        this.ballRemover = new BallRemover(this, remainingBalls);
+        List<Block> borders = new ArrayList<Block>();
+        borders.add(BlockFactory.borderBlock(0, 0, gameWidth, borderThickness, Color.GRAY)); //top
+        borders.add(BlockFactory.borderBlock(gameWidth - borderThickness, 0, borderThickness,
+                gameHeight, Color.GRAY)); //right
+        borders.add(BlockFactory.borderBlock(0, 0, borderThickness, gameHeight, Color.GRAY)); //left
+
+        // bottom border. is not visible, and if being touched will lead to loss.
+        Block bottomBorder = BlockFactory.borderBlock(0, gameHeight, gameWidth, borderThickness, Color.WHITE);
+        HitListener deathListener = new BallRemover(this, remainingBalls);
+        bottomBorder.addHitListener(deathListener);
+        borders.add(bottomBorder);
+        for (Block b : borders) {
+            addSprite(b);
+            addCollidable(b);
+        }
+
+        // Game Block Listeners.
+        blockHitListeners = new ArrayList<>();
+        blockHitListeners.add(new ScoreTrackingListener(score));
+        blockHitListeners.add(new BlockRemover(this, remainingBlocks));
+
+        // score indicator
+        Sprite scoreIndicator = new ScoreIndicator(score, this);
+        this.addSprite(scoreIndicator);
+    }
+
+    /**
+     * run the animation loop. game will start to play until user closes the game or wins.
+     */
+    public void run() {
+
+        int framesPerSecond = 60;
+        int millisecondsPerFrame = 1000 / framesPerSecond;
+        while (true) {
+            long startTime = System.currentTimeMillis(); // timing
+
+            DrawSurface d = gui.getDrawSurface();
+            this.sprites.drawAllOn(d);
+            gui.show(d);
+            this.sprites.notifyAllTimePassed();
+
+            // timing
+            long usedTime = System.currentTimeMillis() - startTime;
+            long milliSecondLeftToSleep = millisecondsPerFrame - usedTime;
+            if (milliSecondLeftToSleep > 0) {
+                sleeper.sleepFor(milliSecondLeftToSleep);
+            }
+
+
+            // win event
+            if (remainingBlocks.getValue() == 0) {
+                score.increase(100);
+                System.out.println("You Win!\nYour score is: " + score.getValue());
+                gui.close();
+                return;
+            }
+
+            // lose event
+            if (remainingBalls.getValue() == 0) {
+                System.out.println("Game Over.\nYour score is: " + score.getValue());
+                gui.close();
+                return;
+            }
+        }
+    }
+
+
+    /**
+     * Generate and add to game a game-block. referring to game as board of 15x26 rectangles.
+     *
+     * @param x     x coordinate starting from 0.
+     * @param y     y coordinate starting from 0.
+     * @param color color of the block.
+     */
+    public void generateGameBlock(int x, int y, Color color) {
+        // sizing and positioning
+        double innerWidth = gameWidth - 2 * borderThickness;
+        double innerHeight = gameHeight - 2 * borderThickness;
+
+        double blockWidth = innerWidth / 15;
+        double blockHeight = innerHeight / 26;
+
+        double newX = borderThickness + x * blockWidth;
+        double newY = borderThickness + y * blockHeight;
+
+        Block toAdd = BlockFactory.gameBlock(newX, newY, blockWidth, blockHeight, color);
+
+        for (HitListener hl : blockHitListeners) {
+            toAdd.addHitListener(hl);
+        }
+        // add to environments
+        this.addBlock(toAdd);
+    }
+
+    /**
+     * Add block to game.
+     *
+     * @param b block to add to game.
+     */
+    public void addBlock(Block b) {
+        remainingBlocks.increase(1);
+        addCollidable(b);
+        addSprite(b);
+    }
+
+    /**
+     * Add ball to game.
+     *
+     * @param b ball to add
+     */
+    public void addBall(Ball b) {
+        remainingBalls.increase(1);
+        b.setGameEnvironment(this.environment);
+        sprites.addSprite(b);
+        gameBalls.add(b);
+    }
+}
